@@ -125,6 +125,15 @@ const menuKb = (cats) => {
 const backKb = { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'back_main' }]] };
 const capitalize = (s='') => s.charAt(0).toUpperCase() + s.slice(1);
 
+// Static daftar commands per kategori (tanpa fs)
+function getCommandsForCategory(category) {
+  const map = {
+    all: ['start', 'help', 'menu', 'cek', 'kuota', 'cekkuota', 'convert', 'converter', 'v2conv', 'v2ray'],
+    utility: ['convert', 'converter', 'v2conv', 'v2ray']
+  };
+  return map[category] || [];
+}
+
 // ===== Handle update =====
 async function handleUpdate(update, api) {
   if (update.message) {
@@ -296,6 +305,22 @@ async function handleCallback(q, api) {
     await sendMainMenu(api, chatId);
     return;
   }
+
+  // Menu kategori: tampilkan daftar perintah
+  if (data.startsWith('menu_')) {
+    const category = data.slice('menu_'.length);
+    const cmds = getCommandsForCategory(category);
+    const displayName = capitalize(category);
+    let text;
+    if (!cmds.length) {
+      text = `⚠️ Tidak ada perintah ditemukan di kategori *${displayName}*.`;
+    } else {
+      text = `📂 *Perintah dalam kategori "${displayName}":*\n\n` + cmds.map(c => `◦ /${c}`).join('\n');
+    }
+    await safeEdit(api, chatId, q.message, text, backKb);
+    return;_code
+ new </}
+ }
 
   if (data.startsWith('cekkuota:')) {
     const [_, action, num] = data.split(':');
