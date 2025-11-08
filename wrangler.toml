@@ -1,0 +1,8 @@
+name = "tele-bot-worker"
+main = "workers/worker.js"
+compatibility_date = "2024-11-08"
+
+[vars]
+# Atur di dashboard/CLI sebagai Secrets (lebih aman):
+# TELEGRAM_TOKEN = ""
+# WEBHOOK_SECRET = ""
