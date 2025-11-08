@@ -54,7 +54,7 @@ export default {
     const api = telegramApi(token);
 
     try {
-      await handleUpdate(update, api);
+      await handleUpdate(update, api, env);
     } catch (e) {
       console.error('handleUpdate error:', e?.message || e);
     }
@@ -110,7 +110,8 @@ function safeEdit(api, chatId, message, textOrCaption, replyMarkup) {
 
 const MENU_IMAGE = 'https://files.catbox.moe/z9dcu4.png';
 
-const categoryList = ['all', 'utility']; // Sesuaikan jika perlu
+// Tambah kategori "custom" untuk command dinamis dari KV
+const categoryList = ['all', 'utility', 'custom'];
 const menuKb = (cats) => {
   const btns = [];
   for (let i = 0; i < cats.length; i += 2) {
@@ -134,22 +135,45 @@ function getCommandsForCategory(category) {
   return map[category] || [];
 }
 
+// ====== KV Helpers (Custom Commands) ======
+async function kvAddCommand(env, name, responseText, createdBy) {
+  const key = `cmd:${name.toLowerCase()}`;
+  const value = JSON.stringify({ text: responseText, by: createdBy, ts: Date.now() });
+  await env.COMMANDS.put(key, value);
+}
+async function kvGetCommand(env, name) {
+  const key = `cmd:${name.toLowerCase()}`;
+  const val = await env.COMMANDS.get(key);
+  if (!val) return null;
+  try { return JSON.parse(val); } catch { return null; }
+}
+async function kvDeleteCommand(env, name) {
+  const key = `cmd:${name.toLowerCase()}`;
+  await env.COMMANDS.delete(key);
+}
+async function kvListCommands(env, limit = 100) {
+  const list = await env.COMMANDS.list({ prefix: 'cmd:' });
+  const names = (list.keys || []).slice(0, limit).map(k => k.name.replace(/^cmd:/, ''));
+  return names;
+}
+
 // ===== Handle update =====
-async function handleUpdate(update, api) {
+async function handleUpdate(update, api, env) {
   if (update.message) {
-    return handleMessage(update.message, api);
+    return handleMessage(update.message, api, env);
   }
   if (update.callback_query) {
-    return handleCallback(update.callback_query, api);
+    return handleCallback(update.callback_query, api, env);
   }
 }
 
 // ===== Message Router =====
-async function handleMessage(msg, api) {
+async function handleMessage(msg, api, env) {
   const chatId = msg.chat.id;
   const text = msg.text || '';
   const isCmd = text.startsWith('/');
   const threadId = msg.message_thread_id || msg?.reply_to_message?.message_thread_id;
+  const adminId = Number(env.ADMIN_ID || 0);
 
   // Basic commands
   if (/^\/start\b/i.test(text)) {
@@ -175,7 +199,10 @@ async function handleMessage(msg, api) {
       `📖 Available Commands\n\n` +
       `• /menu — daftar kategori\n` +
       `• /cekkuota <nomor>\n` +
-      `• /convert — kirim link vless/vmess/trojan atau Clash YAML satu proxy`;
+      `• /convert — kirim link vless/vmess/trojan atau Clash YAML satu proxy\n` +
+      `• /addcmd <nama> <teks>\n` +
+      `• /delcmd <nama>\n` +
+      `• /listcmd`;
     await api.sendMessage(chatId, help, { parse_mode: 'Markdown', ...(threadId ? { message_thread_id: threadId } : {}) });
     return;
   }
@@ -185,7 +212,44 @@ async function handleMessage(msg, api) {
     return;
   }
 
-  // cekkuota: command atau angka langsung
+  // ===== Custom Command Management (/addcmd, /delcmd, /listcmd) =====
+  const addMatch = text.match(/^\/addcmd(?:@[A-Za-z0-9_]+)?\s+(\w+)\s+([\s\S]+)/i);
+  if (addMatch) {
+    if (adminId && msg.from?.id !== adminId) {
+      await api.sendMessage(chatId, '🔒 Perintah ini hanya untuk admin.', { ...(threadId ? { message_thread_id: threadId } : {}) });
+      return;
+    }
+    const name = addMatch[1].toLowerCase();
+    const resp = addMatch[2].trim();
+    if (!/^[a-zA-Z0-9_]{2,32}$/.test(name)) {
+      await api.sendMessage(chatId, '❌ Nama command hanya huruf/angka/underscore, 2-32 karakter.', { ...(threadId ? { message_thread_id: threadId } : {}) });
+      return;
+    }
+    await kvAddCommand(env, name, resp, msg.from?.id || 0);
+    await api.sendMessage(chatId, `✅ Command ditambahkan: /${name}`, { ...(threadId ? { message_thread_id: threadId } : {}) });
+    return;
+  }
+
+  const delMatch = text.match(/^\/delcmd(?:@[A-Za-z0-9_]+)?\s+(\w+)/i);
+  if (delMatch) {
+    if (adminId && msg.from?.id !== adminId) {
+      await api.sendMessage(chatId, '🔒 Perintah ini hanya untuk admin.', { ...(threadId ? { message_thread_id: threadId } : {}) });
+      return;
+    }
+    const name = delMatch[1].toLowerCase();
+    await kvDeleteCommand(env, name);
+    await api.sendMessage(chatId, `🗑️ Command dihapus: /${name}`, { ...(threadId ? { message_thread_id: threadId } : {}) });
+    return;
+  }
+
+  if (/^\/listcmd(?:@[A-Za-z0-9_]+)?$/i.test(text)) {
+    const names = await kvListCommands(env);
+    const body = names.length ? names.map(n => `• /${n}`).join('\n') : '— (kosong)';
+    await api.sendMessage(chatId, `📜 Daftar Custom Commands:\n\n${body}`, { ...(threadId ? { message_thread_id: threadId } : {}) });
+    return;
+  }
+
+  // ===== cekkuota: command atau angka langsung =====
   const msisdnArg = text.match(/^\/(?:cek|kuota|cekkuota)(?:@[A-Za-z0-9_]+)?\s+(.+)/i)?.[1];
   const normalized = normalizeNumber(msisdnArg || (!isCmd ? text.trim() : ''));
   if (normalized) {
@@ -206,7 +270,7 @@ async function handleMessage(msg, api) {
     return;
   }
 
-  // converter: entry
+  // ===== converter: entry =====
   if (/^\/(?:convert|converter|v2conv|v2ray)(?:@[A-Za-z0-9_]+)?$/i.test(text)) {
     await api.sendMessage(chatId,
       'Pilih salah satu atau langsung kirim input:\n\n' +
@@ -226,7 +290,7 @@ async function handleMessage(msg, api) {
     return;
   }
 
-  // converter: langsung kirim link / config
+  // ===== converter: langsung kirim link / config =====
   if (text.startsWith('vless://') || text.startsWith('vmess://') || text.startsWith('trojan://')) {
     try {
       const link = tryUrlDecode(text.split(/\s+/)[0]);
@@ -281,10 +345,23 @@ async function handleMessage(msg, api) {
     }
     return;
   }
+
+  // ===== Custom command execution: /<name> =====
+  if (isCmd) {
+    const m = text.match(/^\/(\w+)/);
+    if (m) {
+      const name = m[1].toLowerCase();
+      const cmd = await kvGetCommand(env, name);
+      if (cmd && cmd.text) {
+        await api.sendMessage(chatId, cmd.text, { ...(threadId ? { message_thread_id: threadId } : {}) });
+        return;
+      }
+    }
+  }
 }
 
 // ===== Callback Router =====
-async function handleCallback(q, api) {
+async function handleCallback(q, api, env) {
   const chatId = q.message.chat.id;
   const data = q.data || '';
   try { await api.answerCallbackQuery(q.id); } catch {}
@@ -309,18 +386,27 @@ async function handleCallback(q, api) {
   // Menu kategori: tampilkan daftar perintah
   if (data.startsWith('menu_')) {
     const category = data.slice('menu_'.length);
-    const cmds = getCommandsForCategory(category);
-    const displayName = capitalize(category);
-    let text;
-    if (!cmds.length) {
-      text = `⚠️ Tidak ada perintah ditemukan di kategori *${displayName}*.`;
+    if (category === 'custom') {
+      const names = await kvListCommands(env);
+      const displayName = capitalize(category);
+      const text = names.length
+        ? `📂 *Perintah dalam kategori "${displayName}":*\n\n` + names.map(n => `◦ /${n}`).join('\n')
+        : `⚠️ Tidak ada perintah ditemukan di kategori *${displayName}*.`;
+      await safeEdit(api, chatId, q.message, text, backKb);
+      return;
     } else {
-      text = `📂 *Perintah dalam kategori "${displayName}":*\n\n` + cmds.map(c => `◦ /${c}`).join('\n');
+      const cmds = getCommandsForCategory(category);
+      const displayName = capitalize(category);
+      let text;
+      if (!cmds.length) {
+        text = `⚠️ Tidak ada perintah ditemukan di kategori *${displayName}*.`;
+      } else {
+        text = `📂 *Perintah dalam kategori "${displayName}":*\n\n` + cmds.map(c => `◦ /${c}`).join('\n');
+      }
+      await safeEdit(api, chatId, q.message, text, backKb);
+      return;
     }
-    await safeEdit(api, chatId, q.message, text, backKb);
-    return;_code
- new </}
- }
+  }
 
   if (data.startsWith('cekkuota:')) {
     const [_, action, num] = data.split(':');
@@ -359,6 +445,21 @@ async function handleCallback(q, api) {
       await api.sendMessage(chatId, '❌ Sesi hilang. Kirim ulang link atau config.');
       return;
     }
+    if (fmt === 'link') {
+      const link = objectToLink(d);
+      await api.sendMessage(chatId, `🔗 <b>Hasil LINK</b>\n\n<code>${esc(link)}</code>`, { parse_mode: 'HTML', disable_web_page_preview: true });
+      return;
+    }
+    let out = '';
+    if (fmt === 'clash') out = generateClashFull(d);
+    else if (fmt === 'neko') out = generateNeko(d);
+    else if (fmt === 'singnew') out = generateSingNew(d);
+    else if (fmt === 'singold') out = generateSingOld(d);
+
+    await api.sendMessage(chatId, `🔹 <b>Hasil</b>\n<pre><code>${esc(out)}</code></pre>`, { parse_mode: 'HTML' });
+    return;
+  }
+}
     if (fmt === 'link') {
       const link = objectToLink(d);
       await api.sendMessage(chatId, `🔗 <b>Hasil LINK</b>\n\n<code>${esc(link)}</code>`, { parse_mode: 'HTML', disable_web_page_preview: true });
