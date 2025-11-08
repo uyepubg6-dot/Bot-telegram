@@ -1,0 +1,7 @@
+{
+  "watch": ["tele.js", "commands", "lib", ".env"],
+  "ext": "js",
+  "ignore": ["node_modules", "**/*.log", "tmp", "temp"],
+  "exec": "node tele.js",
+  "delay": "200ms"
+}

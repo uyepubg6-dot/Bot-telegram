@@ -1,0 +1,47 @@
+{
+  "name": "telegram-bot-modular",
+  "version": "1.0.0",
+  "description": "Telegram bot modular dengan auto-load plugins, thread-aware /start, auto-restart .js via chokidar, dan /reload khusus owner.",
+  "main": "tele.js",
+  "scripts": {
+    "start": "node tele.js",
+    "dev": "nodemon",
+    "start:pm2": "pm2 start tele.js --name tele-bot --time",
+    "restart:pm2": "pm2 restart tele-bot",
+    "stop:pm2": "pm2 stop tele-bot",
+    "logs:pm2": "pm2 logs tele-bot",
+    "postinstall": "node -e \"require('fs').mkdirSync('commands',{recursive:true}); console.log('✅ Ready. Tambahkan plugin di ./commands')\""
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "node-telegram-bot-api",
+    "plugins",
+    "scraper",
+    "chokidar",
+    "thread-aware"
+  ],
+  "author": "Last Symphony",
+  "license": "MIT",
+  "dependencies": {
+    "@colors/colors": "^1.6.0",
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0",
+    "chokidar": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.2",
+    "mime-types": "^2.1.35",
+    "node-cache": "^5.1.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "qs": "^6.13.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7",
+    "pm2": "^5.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
